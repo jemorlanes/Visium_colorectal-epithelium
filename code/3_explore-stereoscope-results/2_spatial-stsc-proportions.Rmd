@@ -23,9 +23,9 @@ library(tidyverse)
 
 Setting directories
 ```{r}
-st.dir <- "/Users/javierescudero/Documents/work/Helmsley_wLudvigL/data/Visium"
-stsc.dir <- "/Users/javierescudero/Documents/work/Helmsley_wLudvigL/results/stsc_res/Colon_Alexandre/new_sc_Alexandre/HV_curated_variableGenes"
-vis.dir <- "/Users/javierescudero/Documents/work/Helmsley_wLudvigL/results/Colon_Alexandre/stsc_cellType_visualization/regions_of_interest/HV-curated-varGenes"
+st.dir <- "your path to the visium data"
+stsc.dir <- "your path to the deconvolution results"
+vis.dir <- "your path to where to expor the plots"
 ```
 
 Loading data
@@ -77,7 +77,7 @@ infoTable <- infoTable %>%
   bind_cols(st.meta) 
 ```
 
-We are only going to keep the PINs of interest, as this is mostly just to do some replotting
+We are only going to keep the PINs of interest
 ```{r}
 pins <- c("1454","1732")
 infoTable <- infoTable %>%
@@ -89,8 +89,7 @@ se <- ReadVisiumData(infoTable)
 se <- LoadImages(se, image_height = 2000)
 ```
 
-#Cropping images
-
+# Cropping images
 ```{r, fig.width=6, fig.height=4}
 MapFeatures(se, features = "nFeature_Spatial", 
             image_use = "raw", pt_size = 2,
@@ -116,7 +115,7 @@ crop.areas <- list("1732" = c(0.6,0.25,0.86,0.65),
 ```
 
 #Revisualization of stereoscope results
-Once we have defined the regions of interest for these sections, we shall redo the plotting of the stereoscope proportions that Alexandre mentioned.
+Once we have defined the regions of interest for these sections, we shall plot the computed celltype proportions
 
 Loading stsc proportions for the sections of interest
 ```{r}
@@ -188,8 +187,6 @@ walk(unique(se.sub$PIN), function(sampleid){
     celltype <- type.key[type]
     #HE plot
     he_figure <- MapFeatures(se_sub, features = type, image_use = "raw",
-                             #colors = turbo(11),
-                             #colors = viridis(11),
                              colors = heat.colors(11),
                              pt_size = size, 
                              scale_alpha = TRUE, 
@@ -206,8 +203,6 @@ walk(unique(se.sub$PIN), function(sampleid){
                       theme = theme(plot.title = element_text(face="bold",
                                                               vjust = -12),
                                     plot.subtitle = element_text(vjust = -14))) &
-      # labs(title = celltype, subtitle = paste(group, tissue, pin, sep = " : "),
-      #      fill = "Celltype proportions") &
       theme(legend.position = "right", legend.text = element_text(angle = 0))
     
     
