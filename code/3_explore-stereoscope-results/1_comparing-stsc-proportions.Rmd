@@ -27,25 +27,14 @@ library(tidyverse)
 Setting directories
 
 ```{r}
-st.dir <- "/Users/javierescudero/Documents/work/Helmsley_wLudvigL/data/Visium"
-stsc.dir <- "/Users/javierescudero/Documents/work/Helmsley_wLudvigL/results/stsc_res/Colon_Alexandre/new_sc_Alexandre"
-vis.dir <- "/Users/javierescudero/Documents/work/Helmsley_wLudvigL/results/Colon_Alexandre/stsc_cellType_visualization/proportions_comparison"
+st.dir <- "your path to the visium spaceranger outs"
+stsc.dir <- "your path to the stereoscope results"
+vis.dir <- "your path to where to export the results"
 ```
-
-# Summary
-
-This markdown is a copy of *comparing_stsc_proportions.Rmd*, the only difference is that I am importing the stereoscope proportions for HV from the *HV_curated_variableGenes*, so the proportions inferred with the curated gene list.
-
-The goal of this markdown is to visualize the variation of the inferred cellular proportions of certain celltypes between healthy and Crohn's disease affected individuals. In order to visualize this variation, I am going to follow a similar approach to what I did on the relapses of pediatric brain tumors: for each celltype, visualize how many spots have been inferred to have each cellular proportion. Here, the *x-axis* should represent **the inferred cellular proportion** and the *y-axis* the **number of spots**. Therefore we will be able to see how abundant each celltype is across the 2 groups.
-
-We only want to compare the proportions in colon samples. 
 
 # Analysis
 
 ## Loading ST data
-
-What we want are 3 cohorts: healthy volunteers, Crohn's disease with IBS and Crohn's disease without IBS. The data from CD patients is already cleaned and stored in a *rds* file. The data from HV will be loaded form the infoTable.
-
 ```{r}
 create_infoTable <- function(data.dir, tissue) {
   
@@ -107,24 +96,8 @@ se.hv <- SubsetSTData(se.hv, expression = nFeature_Spatial >= 150)
 se.hv <- LoadImages(se.hv, image_height = 2000)
 ```
 
-**Loading CD data** CD cleaned data is stored in the *rds* object
-
-```{r}
-se.cd <- readRDS(list.files(st.dir, recursive = TRUE, pattern = "upd_se", full.names = TRUE))
-se.cd <- LoadImages(se.cd, image_height = 2000)
-```
-
-**Exploration of the loaded data** The data looks good.
-
-```{r, fig.width=12, fig.height=14}
-MapFeatures(se.hv, features = "nFeature_Spatial", image_use = "raw", label_by = "sample_id")
-MapFeatures(se.cd, features = "nFeature_Spatial", image_use = "raw", label_by = "sample_id")
-```
-
-## Loading stereoscope data
-
-Now this could get a bit tricky. The indexing of the spots that we have here now loaded in each seurat is quite different from that of the stereoscope output, so we have to be a tad careful.
-
+## Loading stereoscope dataq
+Addressing potential issues in spot indexing
 ```{r}
 load_stsc <- function(stsc_dir, se_obj, id_feature) {
   ##this version of the function allows for re-indexing of the ST barcodes based on the position of the section of interest in the input seurat
@@ -157,21 +130,14 @@ load_stsc <- function(stsc_dir, se_obj, id_feature) {
 ```
 
 ```{r}
-stsc.hv.res <- load_stsc(stsc_dir = paste0(stsc.dir,"/HV_curated_variableGenes"),
+stsc.hv.res <- load_stsc(stsc_dir = paste0(stsc.dir),
                          se.hv, "sample_id")
-stsc.cd.res <- load_stsc(stsc_dir = stsc.dir,
-                         se.cd, "sample_id")
-stsc.hv.cd.res <- load_stsc(stsc_dir = paste0(stsc.dir,"/HV-CD"),
-                         SubsetSTData(se.hv, expression = Tissue == "colon"), 
-                         "sample_id")
 ```
 
 ## Comparing healthy patients
-
-We want to compare the proportions of healthy patients in colon and healthy patients in rectum. For this comparison, I will use the annotation of the sc object that contained only HV cells. The stereoscope proportions for this annotation is in the folder *HV* and in the dataframe *stsc.hv.res*.
+We want to compare the proportions of healthy patients in colon and healthy patients in rectum.
 
 Loading stereoscope proportions to seurat
-
 ```{r}
 add_stsc_to_seurat <- function(se_obj, stsc_res){
   #formatting stsc results
@@ -207,8 +173,7 @@ avg_stsc_prps <- function(stsc_df, meta_df, meta_columns, grouping, celltype_col
   meta_stsc <- stsc_df %>%
     inner_join(select(meta_df, 
                      all_of(meta_columns)),
-              by = "sample_id") #%>%
-    #select_if(~ !any(is.na(.))) #remove any celltype that has an NA (cannot be compared)
+              by = "sample_id") 
   #creating plot df
   plot_df <- meta_stsc %>%
     pivot_longer(cols = colnames(meta_stsc)[colnames(meta_stsc) %in% names(celltype_colors)],
@@ -234,36 +199,8 @@ avg_stsc_prps <- function(stsc_df, meta_df, meta_columns, grouping, celltype_col
 }
 ```
 
-Define celltypes of interest
-
-```{r}
-# celltype.colors <- setNames(brewer.pal(5, "Set1"),
-#                             c("CA1+ AbC",
-#                               "CA1+ CEACAM7+ AbC-early",
-#                               "CA1+ CEACAM7+ AbC-late",
-#                               "BEST4+ AbC",
-#                               "AQP8+ CEACAM7+ AbC"))
-# 
-# celltype.colors <- setNames(Polychrome::light.colors(n=length(setdiff(colnames(stsc.hv.res),
-#                                                             c("sample_id","spot_id")))),
-#                             setdiff(colnames(stsc.hv.res),c("sample_id","spot_id")))
-```
-
 Plotting
-
 ```{r}
-celltype.colors <- setNames(brewer.pal(5, "Set1"),
-                            c("CA1+ AbC",
-                              "CA1+ CEACAM7+ AbC-early",
-                              "CA1+ CEACAM7+ AbC-late",
-                              "BEST4+ AbC",
-                              "AQP8+ CEACAM7+ AbC"))
-hv.plot <- avg_stsc_prps(stsc.hv.res, 
-                         infoTable.HV,c("sample_id","Group","PIN","Tissue"),
-                         "Tissue", celltype_colors = celltype.colors)
-ggsave(hv.plot, filename = paste0(vis.dir,"/Proportions_Rectum_v_Colon_HV-curated-varGenes_1.png"),
-       width = 8, height = 9)
-
 celltype.colors <- setNames(Polychrome::light.colors(n=length(setdiff(colnames(stsc.hv.res),
                                                             c("sample_id","spot_id")))),
                             setdiff(colnames(stsc.hv.res),c("sample_id","spot_id")))
@@ -274,302 +211,9 @@ ggsave(hv.plot, filename = paste0(vis.dir,"/Proportions_Rectum_v_Colon_HV-curate
        width = 8, height = 9)
 ```
 
-## Comparing Crohn's disease vs Healthy Volunteers
-
-### Average proportions for each celltype
-
-First we must gather the stereoscope proportions for both CD and HV patients deconvoluted with the single cell object that contains both cohorts. For HV, the are in *stsc.hv.cd.res*.
-
-Some celltypes were discarded when I gathered the annotation data because they did not have enough celltypes in a specific cohort, so some celltypes were included in CD-IBS but not in CD+IBS/HV. Regardless, we just want to focus on a few celltypes.
-
-```{r}
-# celltype.colors <- setNames(brewer.pal(5, "Set1"),
-#                             c("AQP8+ CEACAM7+ AbC", 
-#                               "AQP8+ CEACAM7+ CA1+ AbC",
-#                               "CA1+ AbC",
-#                               "CA1+ AbC-early",
-#                               "BEST4+ AbC"))
-# 
-# celltype.colors <- setNames(Polychrome::light.colors(n=length(setdiff(colnames(bind_rows(stsc.cd.res, 
-#                                                                                          stsc.hv.cd.res)),
-#                                                                       c("sample_id","spot_id")))),
-#                             setdiff(colnames(bind_rows(stsc.cd.res,
-#                                                        stsc.hv.cd.res)),
-#                                     c("sample_id","spot_id")))
-```
-
-```{r}
-celltype.colors <- setNames(brewer.pal(5, "Set1"),
-                            c("AQP8+ CEACAM7+ AbC", 
-                              "AQP8+ CEACAM7+ CA1+ AbC",
-                              "CA1+ AbC",
-                              "CA1+ AbC-early",
-                              "BEST4+ AbC"))
-cd.hv.plot <- avg_stsc_prps(stsc_df = bind_rows(stsc.cd.res, stsc.hv.cd.res), 
-                            meta_df = infoTable, 
-                            meta_columns = c("sample_id","Group","PIN","Tissue"),
-                            "Group", celltype_colors = celltype.colors)
-cd.hv.plot
-ggsave(cd.hv.plot, filename = paste0(vis.dir,"/Proportions_CD_v_HV_1.png"),
-       width = 8, height = 9)
-
-celltype.colors <- setNames(Polychrome::light.colors(n=length(setdiff(colnames(bind_rows(stsc.cd.res, 
-                                                                                         stsc.hv.cd.res)),
-                                                                      c("sample_id","spot_id")))),
-                            setdiff(colnames(bind_rows(stsc.cd.res,
-                                                       stsc.hv.cd.res)),
-                                    c("sample_id","spot_id")))
-cd.hv.plot <- avg_stsc_prps(stsc_df = bind_rows(stsc.cd.res, stsc.hv.cd.res), 
-                            meta_df = infoTable, 
-                            meta_columns = c("sample_id","Group","PIN","Tissue"),
-                            "Group", celltype_colors = celltype.colors)
-ggsave(cd.hv.plot, filename = paste0(vis.dir,"/Proportions_CD_v_HV_2.png"),
-       width = 8, height = 9)
-```
-
-# Metainfo
-
+# Metadata
 ```{r}
 date()
 sessionInfo()
 ```
 
-## Formatting stereoscope data
-
-We have to compare HV vs both types of CD for the celltypes of interest
-
-```{r, eval=FALSE}
-types.interest <- intersect(colnames(stsc.cd.res), colnames(stsc.hv.res))
-```
-
-Now that we have the stereoscope proportions loaded in, we have to split them in the different groups. In order to do this, we have to add some annotation information to the proportions dataframe.
-
-```{r, eval=FALSE}
-meta.stsc.hv.res <- stsc.hv.res %>%
-  select(all_of(types.interest)) %>%
-  full_join(select(infoTable.HV,
-                   c(sample_id, Group, PIN, Tissue)), by = "sample_id") 
-meta.stsc.cd.res <- stsc.cd.res %>%
-  select(all_of(types.interest)) %>%
-  full_join(select(filter(infoTable, Group %in% c("CD-IBS","CD+IBS")),
-                   c(sample_id, Group, PIN, Tissue)), by = "sample_id") %>%
-  drop_na()
-```
-
-We must divide the cellular proportions in the analysis cohorts we want to study: HV vs CD-IBS, HV vs CD+IBS
-
-```{r, eval=FALSE}
-hv.w.ibs <- meta.stsc.cd.res %>%
-  filter(Group == "CD+IBS") %>%
-  rbind(meta.stsc.hv.res) 
-hv.wo.ibs <- meta.stsc.cd.res %>%
-  filter(Group == "CD-IBS") %>%
-  rbind(meta.stsc.hv.res)
-
-hv.cd <- rbind(meta.stsc.cd.res, meta.stsc.hv.res)
-```
-
-## Plotting
-
-############### 
-
-```{r, eval=FALSE}
-split_by <- function(big_df, split_col) {
-  #splitting the df by the desired stuff
-  split_data <- big_df %>%
-    group_by(!!sym(split_col)) %>%
-    group_split()
-  #naming the elements of the split list based on the element we split by
-  names(split_data) <- map(split_data, function(this){unique(this[[split_col]])})
-
-  return(split_data)
-}
-a <- split_by(hv.wo.ibs, "Group")
-b <- split_by(hv.w.ibs, "Group")
-c <- split_by(hv.cd, "Group")
-```
-
-############### 
-
-Define a colour scheme for the celltypes so that both plots are easier to compare
-
-```{r, eval=FALSE}
-celltype.colours <- c(GC = "#3366CC",
-                      `GC-immature` = "#CC00CC",
-                      `TA` = "#339900",
-                      SC = "#006600",
-                      TF = "#99CC00")
-```
-
-Actual plotting \*\*\*\*\*\*\*\*\*\*\*\*\*\*\*\*\*\*\*\*\*\*\*\*\*\*\*\*\*\*\*\*\*\*\*
-
-```{r, eval=FALSE}
-compare_cohorts <- function(cohorts_data, plot_title){
-  cohort_df <- cohorts_data %>%
-    pivot_longer(cols = colnames(.)[colnames(.) %in% names(celltype.colours)],
-                 names_to = "celltype", values_to = "prop") %>%
-    mutate(across(where(is.numeric), round, 1)) 
-  
-  #compute percentages for both groups in the df. This df will contain the % of spots of all the sections under a diagnosis group that have a specific proportion of a specific celltype. For example, if it says that in diagnosis CD-IBS prop GC 0.2 = 2%, it means that 2% of all the spots of sections classified as CD-IBS have an inferred proportion of 0.2 for GC.
-  plot_df <- map_dfr(unique(cohort_df$Group), function(this_group){
-    #we compute the % per group and then we join
-    diagnosis_df <- cohort_df %>%
-      filter(Group == this_group)
-    plot_df <- map_dfr(unique(diagnosis_df$celltype), function(this_celltype){
-      #computing percentages for that celltype across all sections in each diagnosis group
-      this_samp_cell <- diagnosis_df %>%
-        #keep only the celltype of interest
-        filter(celltype == this_celltype) %>%
-        #counting how many spots we have per inferred proportion
-        group_by(prop) %>%
-        add_count(name = "n") %>%
-        #turning this number into a % of the total number of spots available for this diagnosis Group (multiple sections)
-        mutate(percent = (n/nrow(diagnosis_df)*100)) %>%
-        distinct(prop, .keep_all = TRUE)
-    })
-  })
-  
-  #some metadata for the plot
-  sample_label <- infoTable %>%
-    filter(sample_id %in% unique(cohort_df$sample_id)) %>%
-    select(!sample_id) %>%
-    unite("anno", PIN:Tissue, remove = FALSE, sep = "-") %>%
-    pull(anno)
-  names(sample_label) <-  c(sort(unique(cohort_df$sample_id)))
-  
-  #plotting
-  type_props <- ggplot(plot_df, aes(x = prop, y = percent, fill = celltype)) +
-    geom_bar(stat = "identity") +
-    facet_grid(Group ~ celltype, scales = "fixed",
-               labeller = labeller(sample_id = sample_label)) +
-    labs(title = plot_title,
-         subtitle = "Distribution of celltype proportions across diagnosis groups",
-         x = "Celltype proportions",
-         y = "Percentage of spots per diagnosis group") +
-    theme(plot.title = element_text(face = "bold"),
-          plot.subtitle = element_text(face = "bold")) +
-    scale_fill_manual(values=celltype.colours) +
-    xlim(-0.1,1) +
-    scale_y_continuous(breaks = seq(0, round(max(plot_df$percent),0),
-                                    2))
-  
-  return(type_props)
-}
-```
-
-```{r, fig.width=5, fig.height=3, eval=FALSE}
-hv.CDwIBS <- compare_cohorts(hv.w.ibs, "HV vs CD+IBS")
-hv.CDwoIBS <- compare_cohorts(hv.wo.ibs, "HV vs CD-IBS")
-
-hv.CDwIBS
-hv.CDwoIBS
-
-plot.HVCD <- compare_cohorts(hv.cd, "HV vs CD+IBS vs CD-IBS")
-plot.HVCD
-```
-
-This code is if we want all the sections in a group plotted individually
-
-```{r, fig.width=6, fig.height=5, eval=FALSE}
-plot.list <- imap(c, function(data, sampleID){
-  #formatting data
-  patient_df <<- data %>%
-    filter(Group == sampleID) %>%
-    pivot_longer(cols = colnames(data)[colnames(data) %in% names(celltype.colours)],
-                 names_to = "celltype", values_to = "prop") %>%
-    mutate(across(where(is.numeric), round, 1)) 
-  #assembling df with the plotting values
-  plot_df <- map_dfr(unique(patient_df$sample_id), function(sampleID){
-    #gathering each sample for a patient
-    sample_df <- patient_df %>%
-      filter(sample_id == sampleID) 
-    plot_df <- map_dfr(unique(sample_df$celltype), function(this_celltype){
-      #computing percentajes for that sample
-      this_samp_cell <- sample_df %>%
-        filter(celltype == this_celltype) %>%
-        group_by(prop) %>%
-        add_count(name = "n") %>%
-        mutate(percent = (n/nrow(sample_df)*100)) %>%
-        distinct(prop, .keep_all = TRUE)
-    })
-    
-    return(plot_df)
-  })
-  
-  #plotting proportions of spots with celltypes.
-  ##getting some metadata for the plot
-  sample_label <- infoTable %>%
-    filter(sample_id %in% unique(plot_df$sample_id)) %>%
-    group_by(sample_id) %>%
-    distinct(Group, .keep_all = TRUE) %>% ungroup() %>%
-    #select(!sample_id) %>%
-    unite("anno", PIN:Group, remove = FALSE, sep = "-") %>%
-    pull(anno)
-  names(sample_label) <-  c(unique(plot_df$sample_id))
-  #print(sample_label)
-  ##plotting
-  type_props <- ggplot(plot_df, aes(x = prop, y = percent, fill = celltype)) +
-    geom_bar(stat = "identity") +
-    facet_grid(sample_id ~ celltype, scales = "fixed",
-               labeller = labeller(sample_id = sample_label)) +
-    labs(title = paste0("Patient ", sampleID),
-         subtitle = "Distribution of celltype proportions across diagnosis groups",
-         x = "Celltype proportions",
-         y = "Percentage of spots per sample") +
-    theme(plot.title = element_text(face = "bold"),
-          plot.subtitle = element_text(face = "bold"),
-          strip.text.y = element_text(size = 9),
-          strip.text.x = element_text(size = 12)) +
-    scale_fill_manual(values=celltype.colours) +
-    xlim(-0.1,1) +
-    scale_y_continuous(breaks = seq(0, round(max(plot_df$percent),0),
-                                    2))
-  
-  #setting up dimensions of figure and exporting
-  # if(file.exists(paste0(vis.dir,"/", "section_",sampleID,"_stscProportions.png")) == FALSE){
-  # ggsave(paste0(vis.dir,"/", "patient_",sampleID,"_stscProportions_time.png"),
-  #        type_props, width = 16, height = 3*length(unique(plot_df$sample_id)))
-  # } else {}
-  
-  print(type_props)
-})
-```
-
-```{r, eval=FALSE}
-aga <- hv.cd %>%
-  pivot_longer(cols = colnames(hv.cd)[colnames(hv.cd) %in% names(celltype.colours)],
-               names_to = "celltype", values_to = "prop") %>%
-  group_by(Group, celltype, sample_id) %>%
-  summarise(new_prop = sum(prop)/n())
-
-ggplot(aga, aes(x = sample_id, y = new_prop, fill = celltype)) +
-  geom_bar(stat = "identity") +
-  facet_grid(~ Group, scales ="free")
-```
-
-```{r, eval=FALSE}
-test <- hv.cd[,c("GC","SC","TA","TF","Group","sample_id")] %>%
-  group_by(Group) %>%
-  group_split() 
-test <- setNames(test, map(test, function(x){unique(x$Group)})) 
-
-test2 <- map(test, function(x){
-  temp <- x %>% group_by(sample_id) %>% group_split()
-  temp <- setNames(temp, map(temp, function(x){unique(x$sample_id)}))
-})
-
-corr.heat <- map(test2, function(group){
-  corr <- map(group, function(section){cor(select(section, where(is.numeric)))})
-})
-
-
-corr.heat <- iwalk(test2, function(data, group){
-  iwalk(data, function(prop, section){
-    corr <- cor(select(prop, where(is.numeric)))
-    pheat <- pheatmap(corr, cluster_cols = TRUE, cluster_rows = TRUE,
-                      main = paste0(group, " - ", section))
-    
-    print(pheat)
-    })
-})
-```
