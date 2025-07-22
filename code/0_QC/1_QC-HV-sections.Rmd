@@ -1,0 +1,185 @@
+---
+title: "QC_HV_sections"
+author: "Javier Escudero"
+date: "2023-08-07"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Libraries
+```{r}
+rm(list=ls())
+
+library(semla)
+library(ggplot2)
+library(viridis)
+
+library(tidyverse)
+```
+
+Setting directories
+```{r}
+st.dir <- "/Users/javierescudero/Documents/work/Helmsley_wLudvigL/data/Visium"
+```
+
+# Summary
+The goal of this markdown is to repeat the QC for the healthy volunteers sections. Initially we selected those spots with more than 150 unique genes, but this might be a bit too permisive. Let's clean that up a bit.
+
+# Analysis
+## Loading ST data
+Finding data
+```{r}
+create_infoTable <- function(data.dir, tissue) {
+  
+  data_dir <- paste0(data.dir,"/",tissue)
+  infoTable <- data.frame(samples = list.files(data_dir, full.names = TRUE, recursive = TRUE, 
+                                               pattern = "^filtered.+.h5$"),
+                          spotfiles = list.files(data_dir,
+                                                 full.names = TRUE, recursive = TRUE, 
+                                                 pattern = "positions_list.csv$"),
+                          imgs = list.files(data_dir ,recursive = TRUE,
+                                            full.names = TRUE, pattern = "^tissue_hires"),
+                          json = list.files(data_dir ,recursive = TRUE,
+                                            full.names = TRUE, pattern = "^scalefactors"))
+  return(infoTable)
+}
+
+infoTable <- create_infoTable(st.dir, tissue = "Colon")
+
+###### Scanning for metadata
+load_ST_meta <- function(data.dir, flag) {
+  if (length(list.files(data.dir, pattern = flag,
+                        recursive = TRUE)) > 0) {
+    meta.path <- list.files(data.dir, pattern = flag, 
+                            full.names = TRUE, recursive=TRUE) 
+    message("Loading metadata from ", meta.path)
+    st.meta <- read_excel(meta.path)
+  } else {
+    message("No metadata found")
+  }
+  return(st.meta)
+}
+
+st.meta <- load_ST_meta(st.dir, flag="overview-A")
+
+st.meta <- st.meta %>%
+  dplyr::rename(sample_id = all_of("Slide ID")) %>%
+  dplyr::arrange(sample_id)
+
+#Subset metadata to keep only samples present in infoTable
+samples.id <- list.dirs(paste0(st.dir,"/Colon/data/curated"), recursive=FALSE, full.names = FALSE)
+st.meta <- st.meta[st.meta$sample_id %in% samples.id, ]
+
+#Incorporate metadata
+infoTable <- infoTable %>%
+  bind_cols(st.meta) 
+```
+
+Loading desired samples into Seurat. We only want healthy volunteers
+```{r}
+se <- ReadVisiumData(infoTable %>%
+                       filter(Group == "HV"))
+se <- LoadImages(se)
+```
+
+## QC plots
+Some basic spatial plotting. Section *V11D06-077_B1* looks like there is only one tissue fragment with decent enough counts. Section *V11D13-069_C1* looks like there has been some difusion, where we find gene counts outside of tissue boundaries. Sections *V10B01-033_B1* and *V10B01-034_B1* look like they barely have any reads.
+```{r, fig.width=8, fig.height=6}
+MapFeatures(se, features = "nFeature_Spatial", label_by = c("sample_id"), pt_size = 3,
+            ncol = 4,  cols = viridis::magma(n = 11, direction = -1)) &
+  theme(text = element_text(size=10))
+
+MapFeatures(se, features = "nFeature_Spatial", label_by = c("sample_id"), 
+            image_use = "raw", pt_size = 1,
+            ncol = 4,  cols = viridis::magma(n = 11, direction = -1)) &
+  theme(text = element_text(size=10))
+```
+
+We can explore the distribution of counts for those loaded samples. From looking at these plots, I think section *V11D06-077_B1* should be completely removed, and I am leaning towards doing the same with *V10B01-033_B1* and *V10B01-034_B1*.
+```{r,fig.width=8, fig.height=6}
+ggplot(se[[]], aes(x = sample_id, y = nFeature_Spatial + 1, fill = protocol)) +
+  geom_violin(scale = "count") +
+  geom_boxplot(width=0.1, color = "darkgreen") +
+  geom_jitter(size = 0.5)  +
+  scale_y_log10() +
+  facet_grid(~Group, scales = "free", space = "free") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1),text = element_text(size=25)) +
+  geom_hline(yintercept = 500, linetype = "dashed", color = "red")
+```
+For now let's remove *V11D06-077_B1* and *V10B01-034_B1*, and set a quite mild threshold at 400 unique genes.
+```{r}
+se.sub <- SubsetSTData(se, 
+                       expression = sample_id %in% str_subset(unique(se$sample_id), 
+                                                              "077_B1|034_B1", 
+                                                              negate = TRUE))
+se.sub <- SubsetSTData(se.sub, expression = nFeature_Spatial >= 400)
+```
+
+Let's plot again. From looking at this plot, I can see that if we are more demanding with the QC, *V10B01-033_B1* ends up quite framented. However, some of the spots still look okay here. I am going to keep it for the analysis part, but being mindful that this section can throw things off down the line.
+```{r, fig.asp = 1}
+MapFeatures(se.sub, features = "nFeature_Spatial", label_by = c("sample_id"), 
+            image_use = "raw", pt_size = 1,
+            ncol = 3,  cols = viridis::magma(n = 11, direction = -1)) &
+  theme(text = element_text(size=10))
+```
+
+Let's clean down, manually, sections *V10B01-033_C1* (some fragments of tissue around), *V11D06-077_A1* (some spots with counts where there seems to be no tissue) and *V11D13-069_C1* (counts where we have no tissue)
+```{r}
+se.33C1 <- FeatureViewer(SubsetSTData(se.sub, expression = sample_id == "V10B01-033_C1"))
+se.33C1$cleanup <- ifelse(is.na(se.33C1$cleanup), "keep", "remove")
+se.33C1 <- SubsetSTData(se.33C1, expression = cleanup == "keep")
+
+se.77A1 <- FeatureViewer(SubsetSTData(se.sub, expression = sample_id == "V11D06-077_A1"))
+se.77A1$cleanup <- ifelse(is.na(se.77A1$cleanup), "keep", "remove")
+se.77A1 <- SubsetSTData(se.77A1, expression = cleanup == "keep")
+
+se.69C1 <- FeatureViewer(SubsetSTData(se.sub, expression = sample_id == "V11D13-069_C1"))
+se.69C1$cleanup <- ifelse(is.na(se.69C1$cleanup), "keep", "remove")
+se.69C1 <- SubsetSTData(se.69C1, expression = cleanup == "keep")
+```
+
+Now let's remove those sections from the original seurat, and put the newly cleaned data in.
+```{r}
+se.manual <- SubsetSTData(se.sub, 
+                          expression = sample_id %in% str_subset(unique(se$sample_id), 
+                                                                 "033_C1|077_A1|069_C1", 
+                                                                 negate = TRUE))
+se.manual <- MergeSTData(x = se.manual, y = list(se.33C1, se.69C1, se.77A1))
+```
+
+Replotting the QC plots. Okay I think that everything looks good. I have removed the spots that I did not like, and I have applied a more stringent QC metric in 400 unique genes. 
+```{r, fig.asp=1}
+MapFeatures(se.manual, features = "nFeature_Spatial", label_by = c("sample_id"), 
+            image_use = "raw", pt_size = 1,
+            ncol = 3,  cols = viridis::magma(n = 11, direction = -1)) &
+  theme(text = element_text(size=10))
+
+ggplot(se.manual[[]], aes(x = sample_id, y = nFeature_Spatial + 1, fill = protocol)) +
+  geom_violin(scale = "count") +
+  geom_boxplot(width=0.1, color = "darkgreen") +
+  geom_jitter(size = 0.5)  +
+  scale_y_log10() +
+  facet_grid(~Group, scales = "free", space = "free") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1),text = element_text(size=25)) +
+  geom_hline(yintercept = 500, linetype = "dashed", color = "red")
+```
+## Exporting QCed data
+After QCing the data, let's export all of this in a nice looking rds that we can load downstream.
+```{r}
+saveRDS(se.manual,
+        "/Users/javierescudero/Documents/work/Helmsley_wLudvigL/data/Visium/Colon/data/curated/se_clean_HV.rds")
+```
+
+# Metadata
+```{r}
+date()
+sessionInfo()
+```
+
+
+

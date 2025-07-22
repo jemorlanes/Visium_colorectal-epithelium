@@ -1,0 +1,165 @@
+---
+title: "exploring_ST_Helmsley"
+author: "Javier Escudero"
+date: '2022-10-11'
+output: html_document
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(fig.width=12, fig.height=8) 
+```
+
+Loading libraries 
+
+```{r}
+rm(list=ls())
+.libPaths("/home/javier.escudero/R/x86_64-pc-linux-gnu-library/4.0")
+
+library(STutility)
+library(ggplot2)
+library(readxl)
+library(dbscan)
+library(tidyverse)
+```
+##Loading ST data
+
+Setting directories
+```{r}
+st.dir <- "/home/javier.escudero/work/Helmsley_wLudvigL/data/Visium"
+stsc.dir <- ""
+```
+
+Finding data
+```{r}
+create_infoTable <- function(data.dir, tissue) {
+  
+  data_dir <- paste0(data.dir,"/",tissue)
+  infoTable <- data.frame(samples = list.files(data_dir, full.names = TRUE, recursive = TRUE, 
+                                               pattern = "^filtered.+.h5$"),
+                          spotfiles = list.files(data_dir,
+                                                 full.names = TRUE, recursive = TRUE, 
+                                                 pattern = "positions_list.csv$"),
+                          imgs = list.files(data_dir ,recursive = TRUE,
+                                            full.names = TRUE, pattern = "^tissue_hires"),
+                          json = list.files(data_dir ,recursive = TRUE,
+                                            full.names = TRUE, pattern = "^scalefactors"))
+  return(infoTable)
+}
+
+infoTable <- create_infoTable(st.dir, tissue = "Colon")
+
+###### Scanning for metadata
+load_ST_meta <- function(data.dir, flag) {
+  if (length(list.files(data.dir, pattern = flag,
+                        recursive = TRUE)) > 0) {
+    meta.path <- list.files(data.dir, pattern = flag, 
+                            full.names = TRUE, recursive=TRUE) 
+    message("Loading metadata from ", meta.path)
+    st.meta <- read_excel(meta.path)
+  } else {
+    message("No metadata found")
+  }
+  return(st.meta)
+}
+
+st.meta <- load_ST_meta(st.dir, flag="overview-A")
+
+st.meta <- st.meta %>%
+  dplyr::rename(sample_id = all_of("Slide ID")) %>%
+  dplyr::arrange(sample_id)
+
+#Subset metadata to keep only samples present in infoTable
+samples.id <- list.dirs(paste0(st.dir,"/Colon/data/curated"), recursive=FALSE, full.names = FALSE)
+st.meta <- st.meta[st.meta$sample_id %in% samples.id, ]
+
+#Incorporate metadata
+infoTable <- infoTable %>%
+  bind_cols(st.meta) 
+```
+
+Subsetting samples based on metadata of interest. In this case, we are going to focus on the ascending colon samples. In this group, we find samples taken from patients with Crohn's disease and/without IBS (Inflammatory Bowel Syndrome). My main idea is going to be to analyze separately all the samples from CD+/-IBS and then just take a look at what comes up.
+```{r}
+infoTable <- infoTable %>%
+  filter(Group == "HV")
+```
+
+Loading desired samples into Seurat
+```{r}
+se <- InputFromTable(infotable = infoTable, 
+                     platform =  "Visium")
+se <- SetIdent(se, value="Group")
+```
+
+```{r}
+se.sub <- SubsetSTData(se, expression = nFeature_RNA >= 150)
+```
+
+```{r}
+ST.FeaturePlot(se.sub, features = "nFeature_RNA", label.by = c("sample_id"), pt.size = 3,
+               ncol = 3, value.scale = "all", cols = viridis::magma(n = 11, direction = -1)) +
+  theme(text = element_text(size=25))
+```
+
+**To export the count data**
+Cleaning the data from ribosomal and mitochondrial genes.
+```{r}
+# get all mitochondrial genes
+mt.genes <- grep(pattern = "^MT-", x = rownames(se.sub), value = TRUE)
+
+# get all ribosomal protein coding genes
+rp.genes <- grep(pattern = "^RPS|^RPL", x = rownames(se.sub), value = TRUE)
+
+# Subset data
+se.sub <- SubsetSTData(se.sub, features = setdiff(rownames(se), c(mt.genes, rp.genes)))
+```
+
+Exporting count matrices of all loaded samples
+```{r}
+exporting_counts <- function(se_obj, l_samples, out_dir) {
+  #defining "writing files" directory
+  counts.dir <- out_dir
+  if (dir.exists(counts.dir)) {
+    message("Counts directory exists, omitting creation")
+  } else {
+    message("Creating counts directory")
+    dir.create(file.path(counts.dir))
+  }
+  #iterating through sampleIDs to export counts
+  walk(l_samples, function(sampleID){
+    message("Exporting sample ", sampleID)
+        
+    se.subset <- SubsetSTData(se_obj, expression = sample_id == sampleID)
+    counts <- t(as.matrix(GetAssayData(se.subset, slot="counts"))) %>%
+      as_tibble(.name_repair = "minimal", rownames= NA) %>%
+      rownames_to_column(var="spots")
+    
+    #exporting counts
+    write_tsv(counts, file=paste0(counts.dir, "counts_", sampleID ,"_cleaned.tsv"))
+  })
+}
+```
+
+```{r}
+exporting_counts(se.sub, unique(se.sub$sample_id), stsc.dir)
+```
+
+## Exporting Colon data
+The colon data was exported using semla, so the script is in my local computer
+
+
+Loading QC object
+```{r}
+se.cd <- readRDS(list.files("~/work/Helmsley_wLudvigL/data/Visium/Colon/data/curated", pattern = ".rds", full.names = TRUE))
+```
+
+Exporting counts
+```{r}
+exporting_counts(se.cd, unique(se.cd$sample_id), "~/work/Helmsley_wLudvigL/data/stsc/stsc_counts/CD")
+```
+
+
+
+
+
+
+

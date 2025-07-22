@@ -1,0 +1,200 @@
+---
+title: "exporting_updated_sc_counts"
+author: "Javier Escudero"
+date: "2023-03-09"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Setting up directories
+```{r}
+rm(list=ls())
+
+library(STutility)
+library(tidyverse)
+```
+
+Setting up directories
+```{r}
+sc.dir <- "/home/javier.escudero/work/Helmsley_wLudvigL/data/single_cell/single-cell-data/Helmsley_single_cell"
+st.dir <- "~/work/Helmsley_wLudvigL/data/Visium/Colon/data/curated"
+out.dir <- "/home/javier.escudero/work/Helmsley_wLudvigL/data/stsc/stsc_counts/updated_sc"
+```
+
+# Summary
+Alexandre gave us an outdated single cell object, so now we have to re-export the counts. I am going to prepare 3 sets of files: one for HV, and 2 for CD (IBS+/-)
+We will also export ST counts here
+
+# Analysis
+## Loading data
+```{r}
+sc.hv <- readRDS(list.files(sc.dir, full.names = TRUE, pattern = "Fig1")) 
+sc.hv <- NormalizeData(sc.hv, normalization.method = "LogNormalize")
+sc.cd <- readRDS(list.files(sc.dir, full.names = TRUE, pattern = "Fig3"))
+sc.cd <- NormalizeData(sc.cd, normalization.method = "LogNormalize")
+```
+
+Computing variable genes
+```{r}
+variable.hv <- sc.hv %>%
+  FindVariableFeatures(selection.method = "vst", nfeatures = 4000) %>% 
+  VariableFeatures()
+
+variable.cd.wIBS <- subset(sc.cd, subset = Subtype == "CD+IBS") %>%
+  FindVariableFeatures(selection.method = "vst", nfeatures = 4000) %>% 
+  VariableFeatures()
+variable.cd.woIBS <- subset(sc.cd, subset = Subtype == "CD-IBS") %>%
+  FindVariableFeatures(selection.method = "vst", nfeatures = 4000) %>% 
+  VariableFeatures()
+variable.hv.cd <- subset(sc.cd, subset = Subtype == "HV") %>%
+  FindVariableFeatures(selection.method = "vst", nfeatures = 4000) %>% 
+  VariableFeatures()
+```
+
+
+## Subsetting data
+```{r}
+hv.mta.data <- data.frame(celltype = gsub(".*#","",as.character(sc.hv$new_anno_celltype_cluster)),
+                             patient_id = sc.hv$PIN) %>%
+  rownames_to_column(var = "cell_id") 
+cd.mta.data <- data.frame(celltype = as.character(sc.cd$anno_celltype),
+                             patient_id = sc.cd$PIN,
+                           subtype = sc.cd$Subtype) %>%
+  rownames_to_column(var = "cell_id") 
+```
+
+Exploring a bit
+```{r}
+celltype_colors <- setNames(Polychrome::light.colors(n=20),
+                            sort(unique(hv.mta.data$celltype)))
+
+plot_df <- select(hv.mta.data, c(patient_id, celltype)) %>%
+  group_by(patient_id, celltype) %>%
+  summarise(count = n()) %>%
+  group_by(patient_id) %>%
+  mutate(prop_cells = count/sum(count))
+plot <- ggplot(plot_df, aes(x = patient_id, y = prop_cells, fill = celltype)) +
+    geom_bar(stat = "identity") +
+    scale_fill_manual(values = celltype_colors) +
+    facet_grid(~ .data[["patient_id"]], scales ="free") +
+    # labs(title = paste0("Average stereoscope proportions in ", paste(sort(unique(meta_df$Group)), 
+    #                                                                  collapse="|"), 
+    #                     " patients"),
+    #      x = "section_id",
+    #      y = "average proportion") +
+    theme(axis.text.x = element_text(angle = 90),
+          plot.title = element_text(face = "bold"),
+          strip.text.x = element_text(face = "bold"),
+          legend.title = element_text(face = "bold"))
+
+plot
+```
+
+Actual subsetting
+```{r}
+subset_group_subgroup <- function(mta_data, group, subgroup){
+  set.seed(9)
+  
+  sub_mta_data <- map_dfr(unique(mta_data[[group]]), function(this_type){
+    #keeping only cells for the celltype of interest
+    anno_this_type <- mta_data %>%
+      filter(.data[[group]] == this_type)
+    #getting cells from each patient
+    samp_anno <- map(unique(anno_this_type[[subgroup]]), function(patientID){
+      pat_anno <- filter(anno_this_type, .data[[subgroup]] == patientID)
+      #how many cells in celltype for this patient
+      cells_this <- nrow(pat_anno)
+      #setting up number for downsampling
+      if (cells_this >= 100) {
+        message("Keeping 100 cells for ", this_type, " in ",patientID)
+        n_cells = 100
+      } else if (cells_this < 25) {
+        message("Dropping ", this_type, ", not enough cells in ", patientID)
+        return(NULL)
+      } else {
+        n_cells = cells_this
+        message("Keeping ", n_cells," cells for ",this_type," in ",patientID)
+      }
+      #downsampling
+      pat_anno <- slice_sample(pat_anno, n=n_cells)
+      
+      return(pat_anno)
+    })
+    return(samp_anno)
+  })
+  return(sub_mta_data)
+}
+```
+
+```{r}
+cells.hv <- subset_group_subgroup(hv.mta.data, "celltype","patient_id") 
+cells.cd.wIBS <- subset_group_subgroup(filter(cd.mta.data, subtype == "CD+IBS"), 
+                                       "celltype","patient_id")  
+cells.cd.woIBS <- subset_group_subgroup(filter(cd.mta.data, subtype == "CD-IBS"), 
+                                       "celltype","patient_id") 
+cells.hv.cd <- subset_group_subgroup(filter(cd.mta.data, subtype == "HV"), 
+                                       "celltype","patient_id") 
+```
+After subsetting the metadata, we must subset the count data
+```{r}
+get_cnt_data <- function(se_obj, genes_keep, cells_keep){
+  count_data <- t(as.matrix(GetAssayData(se_obj, slot = "counts")[genes_keep, cells_keep])) %>%
+    as_tibble(rownames = NA) 
+  clean_count_data <- count_data[,colSums(count_data[]) > 0] %>%
+    mutate(cell_id = rownames(count_data), .before = 1)
+}
+```
+
+```{r}
+cnt.HV <- get_cnt_data(sc.hv, variable.hv, cells.hv$cell_id)
+variable.hv <- intersect(variable.hv, colnames(cnt.HV))
+
+cnt.cd.wIBS <- get_cnt_data(sc.cd, variable.cd.wIBS, cells.cd.wIBS$cell_id)
+variable.cd.wIBS <- intersect(variable.cd.wIBS, colnames(cnt.cd.wIBS))
+
+cnt.cd.woIBS <- get_cnt_data(sc.cd, variable.cd.woIBS, cells.cd.woIBS$cell_id)
+variable.cd.woIBS <- intersect(variable.cd.woIBS, colnames(cnt.cd.woIBS))
+
+cnt.hv.cd <- get_cnt_data(sc.cd, variable.hv.cd, cells.hv.cd$cell_id)
+variable.hv.cd <- intersect(variable.hv.cd, colnames(cnt.hv.cd))
+```
+
+Exporting data
+```{r}
+#healthy
+write_tsv(cnt.HV, file = paste0(out.dir, "/HV_cnt_matrix.tsv"))
+write_tsv(select(cells.hv, c(cell_id, celltype)), 
+                 file = paste0(out.dir, "/HV_mta_data.tsv"))
+write_lines(variable.hv, file = paste0(out.dir, "/HV_variable_genes.txt"))
+
+#cdwibs
+write_tsv(cnt.cd.wIBS, file = paste0(out.dir, "/CD+IBS_cnt_matrix.tsv"))
+write_tsv(select(cells.cd.wIBS,c(cell_id, celltype)), 
+          file = paste0(out.dir, "/CD+IBS_mta_data.tsv"))
+write_lines(variable.cd.wIBS, file = paste0(out.dir, "/CD+IBS_variable_genes.txt"))
+
+#cdwoibs
+write_tsv(cnt.cd.woIBS, file = paste0(out.dir, "/CD-IBS_cnt_matrix.tsv"))
+write_tsv(select(cells.cd.woIBS,c(cell_id, celltype)), 
+          file = paste0(out.dir, "/CD-IBS_mta_data.tsv"))
+write_lines(variable.cd.woIBS, file = paste0(out.dir, "/CD-IBS_variable_genes.txt"))
+
+#hv from cd
+write_tsv(cnt.hv.cd, file = paste0(out.dir, "/HV-CD_cnt_matrix.tsv"))
+write_tsv(select(cells.hv.cd,c(cell_id, celltype)), 
+          file = paste0(out.dir, "/HV-CD_mta_data.tsv"))
+write_lines(variable.hv.cd, file = paste0(out.dir, "/HV-CD_variable_genes.txt"))
+```
+
+# Details
+```{r}
+date()
+sessionInfo()
+```
+
+
+
+

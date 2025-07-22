@@ -1,0 +1,231 @@
+---
+title: "regions_interest_1454_1732"
+output: html_document
+author: "Javier Escudero"
+date: "2023-02-28"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Loading libraries
+```{r}
+rm(list=ls())
+
+library(semla)
+library(ggplot2)
+library(readxl)
+library(viridis)
+library(patchwork)
+library(tidyverse)
+```
+
+Setting directories
+```{r}
+st.dir <- "/Users/javierescudero/Documents/work/Helmsley_wLudvigL/data/Visium"
+stsc.dir <- "/Users/javierescudero/Documents/work/Helmsley_wLudvigL/results/stsc_res/Colon_Alexandre/new_sc_Alexandre/HV_curated_variableGenes"
+vis.dir <- "/Users/javierescudero/Documents/work/Helmsley_wLudvigL/results/Colon_Alexandre/stsc_cellType_visualization/regions_of_interest/HV-curated-varGenes"
+```
+
+Loading data
+```{r}
+create_infoTable <- function(data.dir, tissue) {
+  
+  data_dir <- paste0(data.dir,"/",tissue)
+  infoTable <- data.frame(samples = list.files(data_dir, full.names = TRUE, recursive = TRUE, 
+                                               pattern = "^filtered.+.h5$"),
+                          spotfiles = list.files(data_dir,
+                                                 full.names = TRUE, recursive = TRUE, 
+                                                 pattern = "positions_list.csv$"),
+                          imgs = list.files(data_dir ,recursive = TRUE,
+                                            full.names = TRUE, pattern = "^tissue_hires"),
+                          json = list.files(data_dir ,recursive = TRUE,
+                                            full.names = TRUE, pattern = "^scalefactors"))
+  return(infoTable)
+}
+
+infoTable <- create_infoTable(st.dir, tissue = "Colon")
+
+###### Scanning for metadata
+load_ST_meta <- function(data.dir, flag) {
+  if (length(list.files(data.dir, pattern = flag,
+                        recursive = TRUE)) > 0) {
+    meta.path <- list.files(data.dir, pattern = flag, 
+                            full.names = TRUE, recursive=TRUE) 
+    message("Loading metadata from ", meta.path)
+    st.meta <- read_excel(meta.path)
+  } else {
+    message("No metadata found")
+  }
+  return(st.meta)
+}
+
+st.meta <- load_ST_meta(st.dir, flag="overview-A")
+
+st.meta <- st.meta %>%
+  dplyr::rename(sample_id = all_of("Slide ID")) %>%
+  dplyr::arrange(sample_id) %>%
+  select(!c("Median Genes per Spot","Median UMI Counts per Spot"))
+
+#Subset metadata to keep only samples present in infoTable
+samples.id <- list.dirs(paste0(st.dir,"/Colon/data/curated"), recursive=FALSE, full.names = FALSE)
+st.meta <- st.meta[st.meta$sample_id %in% samples.id, ]
+
+#Incorporate metadata
+infoTable <- infoTable %>%
+  bind_cols(st.meta) 
+```
+
+We are only going to keep the PINs of interest, as this is mostly just to do some replotting
+```{r}
+pins <- c("1454","1732")
+infoTable <- infoTable %>%
+  filter(PIN %in% pins)
+```
+
+```{r}
+se <- ReadVisiumData(infoTable)
+se <- LoadImages(se, image_height = 2000)
+```
+
+#Cropping images
+
+```{r, fig.width=6, fig.height=4}
+MapFeatures(se, features = "nFeature_Spatial", 
+            image_use = "raw", pt_size = 2,
+            pt_alpha = 0.5, label_by = "PIN") &
+  theme(panel.grid.major = element_line(linetype = "dashed"), axis.text = element_text())
+```
+
+```{r}
+MapFeatures(se, features = "nFeature_Spatial", section_number = 1, 
+            image_use = "raw", pt_size = 2,
+            pt_alpha = 0.5, label_by = "PIN",
+            crop_area = c(0.6,0.25,0.86,0.65))
+
+MapFeatures(se, features = "nFeature_Spatial", section_number = 2, 
+            image_use = "raw", pt_size = 2,
+            pt_alpha = 0.5, label_by = "PIN",
+            crop_area = c(0.25,0.53,0.81,0.905)) &
+  plot_annotation(subtitle = 'The surprising truth \n about mtcars') &
+  theme(plot.title = element_blank())
+
+crop.areas <- list("1732" = c(0.6,0.25,0.86,0.65),
+                   "1454" = c(0.25,0.53,0.81,0.905))
+```
+
+#Revisualization of stereoscope results
+Once we have defined the regions of interest for these sections, we shall redo the plotting of the stereoscope proportions that Alexandre mentioned.
+
+Loading stsc proportions for the sections of interest
+```{r}
+load_stsc <- function(se_obj, id_feature) {
+  #collection stereoscope outputs based on our seurat object
+  stsc_sections_dirs <- str_subset(list.dirs(stsc.dir, recursive=TRUE, full.names = TRUE),
+                                   pattern = paste(unique(se_obj@meta.data[[id_feature]]),
+                                                   collapse = "|"))
+  
+  #reading results from those directories
+  temp_stsc_res <- map_dfr(stsc_sections_dirs, function(section_dir) {
+    file <- list.files(section_dir, pattern=".tsv",full.names = TRUE)
+    message(file)
+    section_res <- read_tsv(file) %>%
+      rename(spot_id = `...1`) %>%
+      mutate(spot_id = str_replace(spot_id, 
+                                   "[[:digit:]]_[[:digit:]]", 
+                                   as.character(str_which(stsc_sections_dirs, 
+                                                          section_dir))))
+  })
+  stsc_res <- temp_stsc_res %>%
+    column_to_rownames(var="spot_id")
+  
+  return(stsc_res)
+}
+
+stsc.res <- load_stsc(se, "sample_id")
+```
+
+We have to modify the names of the celltypes, as they have a lot of special characters
+```{r}
+se.sub <- SubsetSTData(se, spots = rownames(stsc.res))
+
+adj.stsc.res <- stsc.res
+colnames(adj.stsc.res) <- colnames(adj.stsc.res) %>%
+  gsub(" ","",.) %>%
+  gsub("[[:punct:]]","_",.) 
+type.key <- colnames(stsc.res)
+names(type.key) <- colnames(adj.stsc.res)
+
+se.sub <- AddMetaData(se.sub, metadata=adj.stsc.res)
+```
+
+Plotting 
+```{r}
+types.interest <- colnames(adj.stsc.res)
+```
+
+```{r}
+walk(unique(se.sub$PIN), function(sampleid){
+  #sample-specific seurat
+  se_sub <- SubsetSTData(se.sub, expression = PIN == sampleid)
+  #define which celltypes are inferred in our section
+  se_sub@meta.data <- se_sub@meta.data %>%
+    discard(~all(is.na(.) | . == ""))
+  types_interest <- intersect(colnames(se_sub@meta.data), types.interest)
+  message(paste0("Plotting for sample ",sampleid))
+  #getting information for plotting
+  group <- unique(se_sub$Group)
+  tissue <- unique(se_sub$Tissue)
+  pin <- paste0("PIN",sampleid)
+  if(sampleid == "1732"){
+    size <- 3.9
+  } else {
+    size <- 2.5
+  }
+  #generate the plots
+  walk(types_interest, function(type){
+    celltype <- type.key[type]
+    #HE plot
+    he_figure <- MapFeatures(se_sub, features = type, image_use = "raw",
+                             #colors = turbo(11),
+                             #colors = viridis(11),
+                             colors = heat.colors(11),
+                             pt_size = size, 
+                             scale_alpha = TRUE, 
+                             label_by = "PIN",
+                             scale = "shared",
+                             crop_area = crop.areas[[sampleid]],
+                             min_cutoff = 0,
+                             max_cutoff = 1) &
+      labs(title = "",
+           subtitle = "",
+           fill = "Celltype proportions") &
+      plot_annotation(title = celltype,
+                      subtitle = paste(group, tissue, pin, sep = " : "),
+                      theme = theme(plot.title = element_text(face="bold",
+                                                              vjust = -12),
+                                    plot.subtitle = element_text(vjust = -14))) &
+      # labs(title = celltype, subtitle = paste(group, tissue, pin, sep = " : "),
+      #      fill = "Celltype proportions") &
+      theme(legend.position = "right", legend.text = element_text(angle = 0))
+    
+    
+    ggsave(paste0(vis.dir, "/",sampleid,"_",type,"_HE.png"),
+           plot=he_figure, 
+           width=6, height=8)  
+  })
+  
+})
+```
+
+# Metainfo
+```{r}
+date()
+sessionInfo()
+```
+
+
+
+
+
