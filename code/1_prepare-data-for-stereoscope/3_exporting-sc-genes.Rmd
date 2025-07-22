@@ -18,24 +18,24 @@ library(tidyverse)
 ```
 
 # Summary
-The goal is to export the manually curated list of genes that Alex provided me with in the Excel *Figure 1 - top 20 genes with annotation*. I prepped the single cell data in the server previously, so I have already selected the celltypes and cells that will be included in the stereoscope run.
+The goal is to export the manually curated list of genes provided in the Excel *Figure 1 - top 20 genes with annotation*. The counts and annotations of the single cells has already been prepped.
 
 Thus, here I will just keep the variable genes for the celltypes that I grabbed previously. 
 
 # Analysis
 Loading the selected celltypes
 ```{r}
-stsc.celltypes <- read_tsv("~/Documents/work/Helmsley_wLudvigL/data/single_cell/Colon_Alexandre/updated_sc/HV_mta_data.tsv") %>%
+stsc.celltypes <- read_tsv("your path/HV_mta_data.tsv") %>%
   pull(celltype) %>% unique()
 ```
 
 Loading the data from the excel.
 ```{r}
-excel.data <- read_excel(list.files("~/Documents/work/Helmsley_wLudvigL/data/single_cell/Colon_Alexandre/updated_sc",
+excel.data <- read_excel(list.files("your path to the location of the excel path with the marker genes",
                                  full.names = TRUE, pattern = ".xlsx"))
 ```
 
-We didn't select all the celltypes, so let's just keep genes for the celltypes we have
+We didn't select all the celltypes, so let's just keep genes for the celltypes we have. This is due to the downsampling done previously.
 ```{r}
 # getting genes and cluster (celltype)
 gene.df <- select(excel.data, c(gene, cluster)) %>%
@@ -49,13 +49,12 @@ celltype.cluster <- as.data.frame(t(excel.data[21, c(9:37)])) %>%
 gene.df <- inner_join(gene.df, celltype.cluster , by = "cluster")
 ```
 
-We need to do some small adjustments to the formats of the names of the celltypes since, as always in this project, there are tiny differences that annoy me and are simply a small stone that gets in the way of a smooth analysis. I will end with backpain from carrying all of these small stones.
+We need to do some small adjustments to the formats of the names of the celltypes.
 ```{r}
 # removing white spaces from everything
 stsc.celltypes <- gsub(" ","", stsc.celltypes)
 gene.df$celltype <- gsub(" ", "", gene.df$celltype)
 
-# also I am noticing that the (R) and (C) flags are not present in this file of marker genes for the single cell data. So what I am going to do is remove that flag from the stereoscope celltypes and just work with the base name. Afterall, the cells for each celltype are already selected. Here it doesn't matter the actuall labelling, just that I keep the genes for all celltypes in gene.df
 stsc.celltypes <- gsub("[[:punct:]][[:upper:]][[:punct:]]", "", stsc.celltypes)
 ```
 
@@ -68,7 +67,7 @@ variable.genes <- filter(gene.df, celltype %in% stsc.celltypes) %>%
 Exporting
 ```{r}
 write_lines(variable.genes, 
-          file = "~/Documents/work/Helmsley_wLudvigL/data/single_cell/Colon_Alexandre/updated_sc/HV_curated_variableGenes.txt")
+          file = "your path/HV_curated_variableGenes.txt")
 ```
 
 # Metadata
