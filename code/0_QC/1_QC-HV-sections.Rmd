@@ -22,11 +22,11 @@ library(tidyverse)
 
 Setting directories
 ```{r}
-st.dir <- "/Users/javierescudero/Documents/work/Helmsley_wLudvigL/data/Visium"
+st.dir <- "your path to the spaceranger folder with all the Visium data"
 ```
 
 # Summary
-The goal of this markdown is to repeat the QC for the healthy volunteers sections. Initially we selected those spots with more than 150 unique genes, but this might be a bit too permisive. Let's clean that up a bit.
+The goal of this markdown is to repeat the QC for the healthy volunteers sections. Initially we selected those spots with more than 150 unique genes, but this might be a bit too permissive. Let's clean that up a bit.
 
 # Analysis
 ## Loading ST data
@@ -86,7 +86,7 @@ se <- LoadImages(se)
 ```
 
 ## QC plots
-Some basic spatial plotting. Section *V11D06-077_B1* looks like there is only one tissue fragment with decent enough counts. Section *V11D13-069_C1* looks like there has been some difusion, where we find gene counts outside of tissue boundaries. Sections *V10B01-033_B1* and *V10B01-034_B1* look like they barely have any reads.
+Some basic spatial plotting. Section *V11D06-077_B1* looks like there is only one tissue fragment with decent enough counts. Section *V11D13-069_C1* looks like there has been some diffusion, where we find gene counts outside of tissue boundaries. Sections *V10B01-033_B1* and *V10B01-034_B1* look like they barely have any reads.
 ```{r, fig.width=8, fig.height=6}
 MapFeatures(se, features = "nFeature_Spatial", label_by = c("sample_id"), pt_size = 3,
             ncol = 4,  cols = viridis::magma(n = 11, direction = -1)) &
@@ -110,7 +110,8 @@ ggplot(se[[]], aes(x = sample_id, y = nFeature_Spatial + 1, fill = protocol)) +
   theme(axis.text.x = element_text(angle = 90, hjust = 1),text = element_text(size=25)) +
   geom_hline(yintercept = 500, linetype = "dashed", color = "red")
 ```
-For now let's remove *V11D06-077_B1* and *V10B01-034_B1*, and set a quite mild threshold at 400 unique genes.
+
+For now let's remove *V11D06-077_B1* and *V10B01-034_B1*, and set a threshold at 400 unique genes.
 ```{r}
 se.sub <- SubsetSTData(se, 
                        expression = sample_id %in% str_subset(unique(se$sample_id), 
@@ -119,7 +120,7 @@ se.sub <- SubsetSTData(se,
 se.sub <- SubsetSTData(se.sub, expression = nFeature_Spatial >= 400)
 ```
 
-Let's plot again. From looking at this plot, I can see that if we are more demanding with the QC, *V10B01-033_B1* ends up quite framented. However, some of the spots still look okay here. I am going to keep it for the analysis part, but being mindful that this section can throw things off down the line.
+Let's plot again. From looking at this plot, I can see that if we are more demanding with the QC, *V10B01-033_B1* ends up quite fragmented. However, some of the spots still look okay here. I am going to keep it for the analysis part, but being mindful.
 ```{r, fig.asp = 1}
 MapFeatures(se.sub, features = "nFeature_Spatial", label_by = c("sample_id"), 
             image_use = "raw", pt_size = 1,
@@ -168,11 +169,12 @@ ggplot(se.manual[[]], aes(x = sample_id, y = nFeature_Spatial + 1, fill = protoc
   theme(axis.text.x = element_text(angle = 90, hjust = 1),text = element_text(size=25)) +
   geom_hline(yintercept = 500, linetype = "dashed", color = "red")
 ```
+
 ## Exporting QCed data
 After QCing the data, let's export all of this in a nice looking rds that we can load downstream.
 ```{r}
 saveRDS(se.manual,
-        "/Users/javierescudero/Documents/work/Helmsley_wLudvigL/data/Visium/Colon/data/curated/se_clean_HV.rds")
+        "your path/se_clean_HV.rds")
 ```
 
 # Metadata
