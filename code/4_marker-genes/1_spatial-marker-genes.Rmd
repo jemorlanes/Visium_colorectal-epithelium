@@ -22,16 +22,16 @@ library(tidyverse)
 
 Setting directories
 ```{r}
-st.dir <- "/Users/javierescudero/Documents/work/Helmsley_wLudvigL/data/Visium/Colon/data/curated"
-vis.dir <- "/Users/javierescudero/Documents/work/Helmsley_wLudvigL/results/Colon_Alexandre/HV-QCed/mapping_genes"
+st.dir <- "your path to where the manually curated HV data is located"
+vis.dir <- "your path to where to export the plots"
 ```
 
 # Summary
-In this markdown we want to check the distribution of marker genes for celltypes EEC and ECC. Apparently we overestimate them in stereoscope, so we are gonna try to see how these markers distribute across the sections. Perhaps the proportions look assy, but the marker genes look okay.
+In this markdown we want to check the distribution of marker genes for celltypes EEC and ECC.
 
 # Analysis
 ## Loading ST data
-For QC, we have an rds
+Load the detailed QCed object
 ```{r}
 se <- readRDS(list.files(st.dir, pattern = "HV.rds", full.names = TRUE))
 se <- LoadImages(se, image_height = 2000)
@@ -83,9 +83,7 @@ plot_genes <- function(se_obj, gene_list, p){
              width=25, height=12)  
       # no HE
       p2 <- MapFeatures(se_obj, features = gene, 
-                        # image_use = "raw", 
                         ncol = 3,
-                        # colors = heat.colors(11), 
                         colors = rev(magma(11)),
                         scale = "shared", 
                         label_by = "super_anno",
