@@ -79,7 +79,7 @@ infoTable <- infoTable %>%
 
 We are only going to keep the PINs of interest
 ```{r}
-pins <- c("1454","1732")
+pins <- c("1454")
 infoTable <- infoTable %>%
   filter(PIN %in% pins)
 ```
@@ -98,23 +98,17 @@ MapFeatures(se, features = "nFeature_Spatial",
 ```
 
 ```{r}
-MapFeatures(se, features = "nFeature_Spatial", section_number = 1, 
-            image_use = "raw", pt_size = 2,
-            pt_alpha = 0.5, label_by = "PIN",
-            crop_area = c(0.6,0.25,0.86,0.65))
-
-MapFeatures(se, features = "nFeature_Spatial", section_number = 2, 
+MapFeatures(se, features = "nFeature_Spatial", 
             image_use = "raw", pt_size = 2,
             pt_alpha = 0.5, label_by = "PIN",
             crop_area = c(0.25,0.53,0.81,0.905)) &
   plot_annotation(subtitle = 'The surprising truth \n about mtcars') &
   theme(plot.title = element_blank())
 
-crop.areas <- list("1732" = c(0.6,0.25,0.86,0.65),
-                   "1454" = c(0.25,0.53,0.81,0.905))
+crop.areas <- list("1454" = c(0.25,0.53,0.81,0.905))
 ```
 
-#Revisualization of stereoscope results
+# Revisualization of stereoscope results
 Once we have defined the regions of interest for these sections, we shall plot the computed celltype proportions
 
 Loading stsc proportions for the sections of interest
