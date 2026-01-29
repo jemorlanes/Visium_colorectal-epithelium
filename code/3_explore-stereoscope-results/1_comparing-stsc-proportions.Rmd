@@ -201,13 +201,16 @@ avg_stsc_prps <- function(stsc_df, meta_df, meta_columns, grouping, celltype_col
 
 Plotting
 ```{r}
-celltype.colors <- setNames(Polychrome::light.colors(n=length(setdiff(colnames(stsc.hv.res),
-                                                            c("sample_id","spot_id")))),
-                            setdiff(colnames(stsc.hv.res),c("sample_id","spot_id")))
+celltype.colors <- setNames(brewer.pal(5, "Set1"),
+                            c("CA1+ AbC",
+                              "CA1+ CEACAM7+ AbC-early",
+                              "CA1+ CEACAM7+ AbC-late",
+                              "BEST4+ AbC",
+                              "AQP8+ CEACAM7+ AbC"))
 hv.plot <- avg_stsc_prps(stsc.hv.res, 
                          infoTable.HV,c("sample_id","Group","PIN","Tissue"),
                          "Tissue", celltype_colors = celltype.colors)
-ggsave(hv.plot, filename = paste0(vis.dir,"/Proportions_Rectum_v_Colon_HV-curated-varGenes_2.png"),
+ggsave(hv.plot, filename = paste0(vis.dir,"/Proportions_Rectum_v_Colon_HV-curated-varGenes_1.png"),
        width = 8, height = 9)
 ```
 
